@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interaktív Adatvizualizációs Diagram</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .tab-btn.active {
+            border-color: #3b82f6;
+            color: #3b82f6;
+            background-color: #eff6ff;
+        }
+        /* Stílusok a kapcsolóhoz */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #3b82f6;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Adatvizualizációs Eszköz</h1>
+            <p class="text-gray-600 mt-2">Napi adatok elemzése Romániában: Hőmérséklet, Csapadék és Kutyaház Eladások</p>
+        </header>
+
+        <div class="bg-white p-6 rounded-xl shadow-lg">
+            <!-- Fülek -->
+            <div class="border-b border-gray-200">
+                <nav class="-mb-px flex space-x-4" aria-label="Tabs">
+                    <button id="chartTabBtn" class="tab-btn whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm">
+                        Diagram és Szűrő
+                    </button>
+                    <button id="dataTabBtn" class="tab-btn whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                        Adatfeltöltés
+                    </button>
+                </nav>
+            </div>
+
+            <!-- Fülek Tartalma -->
+            <div class="mt-6">
+                <!-- Adatfeltöltés fül -->
+                <div id="dataTabContent" class="hidden">
+                    <h2 class="text-xl font-semibold mb-4">1. Adatbevitel</h2>
+                    <p class="text-sm text-gray-500 mb-2">Illessze be a CSV adatokat. A formátum legyen: <br><code class="bg-gray-200 p-1 rounded">Dátum,Hőmérséklet_C,Csapadék_mm,Kutyaház_db</code></p>
+                    <textarea id="csvData" class="w-full h-64 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" placeholder="Pl: 2023-10-01,15,2,5"></textarea>
+                    
+                    <button id="renderChartBtn" class="w-full md:w-auto mt-4 bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-transform transform hover:scale-105">
+                        Diagram Rajzolása
+                    </button>
+                </div>
+
+                <!-- Diagram és Szűrő fül -->
+                <div id="chartTabContent">
+                    <div class="flex flex-col gap-8">
+                        <!-- Szűrők -->
+                        <div class="border-b pb-4">
+                             <h2 class="text-xl font-semibold mb-4">Vezérlők</h2>
+                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label for="sensitivitySlider" class="form-label text-sm font-medium text-gray-700">Hőmérséklet-csökkenés érzékenység: <span id="sensitivityValue" class="font-bold text-blue-600">3</span> °C</label>
+                                    <p class="text-xs text-gray-500 mb-2">Jelölje a napokat, ahol a hőmérséklet csökkenése az előző naphoz képest nagyobb vagy egyenlő a beállított értéknél.</p>
+                                    <input type="range" id="sensitivitySlider" min="0" max="10" value="3" step="1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                                </div>
+                                <div>
+                                    <label class="form-label text-sm font-medium text-gray-700">Adat Aggregálás</label>
+                                    <p class="text-xs text-gray-500 mb-2">Eladások heti mozgóátlagának megjelenítése.</p>
+                                    <div class="flex items-center mt-3">
+                                        <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                            <input type="checkbox" name="toggle" id="movingAverageToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
+                                            <label for="movingAverageToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                                        </div>
+                                        <label for="movingAverageToggle" class="text-sm text-gray-700 cursor-pointer">7 napos mozgóátlag az eladásokra</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Diagram -->
+                        <div class="w-full h-96 md:h-[500px]">
+                            <canvas id="myChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const csvDataInput = document.getElementById('csvData');
+        const renderChartBtn = document.getElementById('renderChartBtn');
+        const sensitivitySlider = document.getElementById('sensitivitySlider');
+        const sensitivityValueSpan = document.getElementById('sensitivityValue');
+        const movingAverageToggle = document.getElementById('movingAverageToggle');
+        const ctx = document.getElementById('myChart').getContext('2d');
+        
+        const chartTabBtn = document.getElementById('chartTabBtn');
+        const dataTabBtn = document.getElementById('dataTabBtn');
+        const chartTabContent = document.getElementById('chartTabContent');
+        const dataTabContent = document.getElementById('dataTabContent');
+
+        let myChart;
+        let chartDataStore = null;
+
+        const sampleData = `Datum,Homerseklet_C,Csapadek_mm,Kutyaház_eladas_db
+2023-10-01,15,2,5
+2023-10-02,16,0,7
+2023-10-03,14,5,4
+2023-10-04,17,0,10
+2023-10-05,18,0,12
+2023-10-06,12,10,3
+2023-10-07,11,8,2
+2023-10-08,15,1,6
+2023-10-09,19,0,15
+2023-10-10,20,0,18
+2023-10-11,15,4,9
+2023-10-12,13,7,5
+2023-10-13,10,12,1
+2023-10-14,11,3,4`;
+        csvDataInput.value = sampleData;
+
+        function switchTab(activeTab) {
+            if (activeTab === 'chart') {
+                chartTabContent.classList.remove('hidden');
+                dataTabContent.classList.add('hidden');
+                chartTabBtn.classList.add('active');
+                dataTabBtn.classList.remove('active');
+            } else {
+                dataTabContent.classList.remove('hidden');
+                chartTabContent.classList.add('hidden');
+                dataTabBtn.classList.add('active');
+                chartTabBtn.classList.remove('active');
+            }
+        }
+
+        function parseCSV() {
+            const lines = csvDataInput.value.trim().split('\n');
+            if (lines.length < 2) {
+                alert("Kérlek, adj meg legalább egy adat sort a fejléc után!");
+                return null;
+            }
+            const data = lines.slice(1).map(line => {
+                const parts = line.split(',');
+                return {
+                    date: parts[0],
+                    temp: parseFloat(parts[1]),
+                    precip: parseFloat(parts[2]),
+                    houses: parseInt(parts[3], 10)
+                };
+            }).filter(row => row.date && !isNaN(row.temp) && !isNaN(row.precip) && !isNaN(row.houses));
+            return data;
+        }
+
+        function calculateMovingAverage(data, windowSize) {
+            let result = [];
+            for (let i = 0; i < data.length; i++) {
+                if (i < windowSize - 1) {
+                    result.push(null); // Nincs elég adat a mozgóátlaghoz
+                } else {
+                    const window = data.slice(i - windowSize + 1, i + 1);
+                    const sum = window.reduce((acc, val) => acc + val, 0);
+                    result.push(sum / windowSize);
+                }
+            }
+            return result;
+        }
+        
+        function getTemperatureHighlightColors(data, sensitivity) {
+            const colors = { background: [], border: [] };
+            data.forEach((current, i) => {
+                if (i > 0) {
+                    const previousTemp = data[i - 1].temp;
+                    const tempDrop = previousTemp - current.temp; // Csökkenés számítása
+                    
+                    // Csak akkor jelöljük, ha a csökkenés eléri a beállított értéket
+                    if (tempDrop >= sensitivity) {
+                        colors.background.push('rgba(255, 26, 104, 1)');
+                        colors.border.push('rgba(255, 26, 104, 1)');
+                    } else {
+                        colors.background.push('rgba(54, 162, 235, 1)');
+                        colors.border.push('rgba(54, 162, 235, 1)');
+                    }
+                } else {
+                    // Az első napnak nincs előző napja, így alapértelmezett színt kap
+                    colors.background.push('rgba(54, 162, 235, 1)');
+                    colors.border.push('rgba(54, 162, 235, 1)');
+                }
+            });
+            return colors;
+        }
+
+        function renderChart() {
+            if (!chartDataStore) {
+                console.error("Nincsenek adatok a diagram megjelenítéséhez.");
+                return;
+            }
+            
+            if (myChart) myChart.destroy();
+
+            const sensitivity = parseInt(sensitivitySlider.value, 10);
+            const tempHighlightColors = getTemperatureHighlightColors(chartDataStore, sensitivity);
+            const labels = chartDataStore.map(d => d.date);
+            
+            const useMovingAverage = movingAverageToggle.checked;
+            const originalHousesData = chartDataStore.map(d => d.houses);
+            let housesData;
+            let housesLabel;
+
+            if (useMovingAverage) {
+                housesData = calculateMovingAverage(originalHousesData, 7);
+                housesLabel = 'Eladott kutyaházak (7 napos mozgóátlag)';
+            } else {
+                housesData = originalHousesData;
+                housesLabel = 'Eladott kutyaházak (db)';
+            }
+
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Átlag hőmérséklet (°C)',
+                            data: chartDataStore.map(d => d.temp),
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            pointBackgroundColor: tempHighlightColors.background,
+                            pointBorderColor: tempHighlightColors.border,
+                            pointRadius: 5,
+                            pointHoverRadius: 8,
+                            tension: 0.1,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Csapadék (mm)',
+                            data: chartDataStore.map(d => d.precip),
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            tension: 0.1,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: housesLabel,
+                            data: housesData,
+                            borderColor: 'rgba(255, 159, 64, 1)',
+                            backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                            tension: 0.1,
+                            yAxisID: 'y1',
+                            spanGaps: true // Összeköti a vonalat a null értékek felett
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { title: { display: true, text: 'Dátum' } },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: { display: true, text: 'Hőmérséklet (°C) / Csapadék (mm)' }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: { display: true, text: 'Eladott kutyaházak (db)' },
+                            grid: { drawOnChartArea: false },
+                            min: 0,
+                            max: 25
+                        }
+                    },
+                    plugins: {
+                        title: { display: true, text: 'Időjárás és Eladások Napi Bontásban', font: { size: 18 } },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    interaction: { mode: 'index', intersect: false }
+                }
+            });
+        }
+        
+        chartTabBtn.addEventListener('click', () => switchTab('chart'));
+        dataTabBtn.addEventListener('click', () => switchTab('data'));
+
+        renderChartBtn.addEventListener('click', () => {
+            chartDataStore = parseCSV();
+            if(chartDataStore) {
+                 switchTab('chart');
+                 renderChart();
+            }
+        });
+        
+        sensitivitySlider.addEventListener('input', () => {
+            sensitivityValueSpan.textContent = sensitivitySlider.value;
+            if (chartDataStore) {
+               renderChart();
+            }
+        });
+
+        movingAverageToggle.addEventListener('change', () => {
+             if (chartDataStore) {
+               renderChart();
+            }
+        });
+        
+        window.onload = () => {
+            switchTab('chart');
+            chartDataStore = parseCSV();
+            if(chartDataStore) {
+                 renderChart();
+            }
+        };
+    </script>
+</body>
+</html>
+
